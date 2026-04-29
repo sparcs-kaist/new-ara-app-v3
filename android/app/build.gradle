@@ -1,0 +1,101 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader('UTF-8') { reader ->
+        localProperties.load(reader)
+    }
+}
+
+def flutterVersionCode = localProperties.getProperty('flutter.versionCode')
+if (flutterVersionCode == null) {
+    flutterVersionCode = '1'
+}
+
+def flutterVersionName = localProperties.getProperty('flutter.versionName')
+if (flutterVersionName == null) {
+    flutterVersionName = '1.0'
+}
+
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+android {
+    /* compileSdkVersion
+    - 앱을 컴파일할 때 사용하는 SDK의 버전
+    - compileSdkVersion에서 지정한 SDK의 Android API를 사용하게 됨
+    - 구글 정책(2024.08.31 이후로 앱은 API 버전 34를 타겟팅해야함)에 따라 33->34로 상향 */
+    //ndk Version은 flutter의 기본 제공 버전 대신에 수동으로 세팅
+    compileSdkVersion 36
+    ndkVersion "27.0.12077973"
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+    }
+
+    defaultConfig {
+        applicationId "org.sparcs.newara"
+        // You can update the following values to match your application needs.
+        // For more information, see: https://docs.flutter.dev/deployment/android#reviewing-the-build-configuration.
+
+        /* minSdkVersion
+        - 앱이 설치될 수 있는 최소한의 API 버전 (이 버전보다 낮은 것만 지원하는 기기에는 설치 불가)
+        - flutter_secure_storage에서 요구하는 최소 버전인 24으로 설정 */
+        minSdkVersion 24
+
+        /* targetSdkVersion
+        - 앱이 테스트되고 최적화된 Android SDK 버전을 의미
+        - targetSdkVersion에 해당하는 Android SDK 버전을 염두해두고 개발되었다는 의미 
+        - 구글 정책(2024.08.31 이후로 앱은 API 버전 34를 타겟팅해야함)에 따라 33->34로 상향 */
+        targetSdkVersion 36
+        versionCode flutterVersionCode.toInteger()
+        versionName flutterVersionName
+    }
+
+    signingConfigs {
+        release {
+            keyAlias keystoreProperties['keyAlias']
+            keyPassword keystoreProperties['keyPassword']
+            storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+            storePassword keystoreProperties['storePassword']
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+        }
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging = false
+        }
+    }
+    namespace 'com.example.new_ara_app'
+}
+
+flutter {
+    source '../..'
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.4.0'
+}

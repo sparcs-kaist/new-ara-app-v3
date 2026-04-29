@@ -1,0 +1,26 @@
+---
+name: new_ara_app
+description: Native shell that hosts the Ara WebView (Next.js).
+publish_to: none
+version: 1.2.3+260222007
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: "^1.0.2"
+  flutter_dotenv: ^6.0.0
+  url_launcher: "^6.1.12"
+  flutter_native_splash: "^2.3.7"
+  # WebView shell + bridge stack
+  flutter_inappwebview: ^6.0.0
+  package_info_plus: ^8.0.0
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+flutter:
+  uses-material-design: true
+  assets:
+  - ".env.development"
+  - ".env.production"

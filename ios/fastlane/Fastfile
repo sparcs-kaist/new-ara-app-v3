@@ -1,0 +1,94 @@
+# This file contains the fastlane.tools configuration
+# You can find the documentation at https://docs.fastlane.tools
+#
+# For a list of all available actions, check out
+#
+#     https://docs.fastlane.tools/actions
+#
+# For a list of all available plugins, check out
+#
+#     https://docs.fastlane.tools/plugins/available-plugins
+#
+
+# Uncomment the line if you want fastlane to automatically update itself
+# update_fastlane
+
+default_platform(:ios)
+
+platform :ios do
+
+  desc "Create a release note on GitHub."
+  lane :create_release_note do |options|
+    # YAML 파일에서 버전 정보를 로드
+    yaml_file_path = "../../pubspec.yaml"
+    data = YAML.load_file(yaml_file_path)
+    version = data["version"]
+    version_number = version.split("+")[0]
+
+    # increment_build_number에서 설정된 버전 코드를 가져옴
+    version_code = get_build_number(xcodeproj: "Runner.xcodeproj")
+
+    # 현재 커밋 해시를 추출
+    current_commit_hash = `git rev-parse HEAD`.strip
+
+    # GitHub API를 사용하여 릴리즈 노트를 생성
+    github_api(
+      http_method: "POST",
+      path: "/repos/sparcs-kaist/new-ara-app/releases",
+      body: {
+        tag_name: "iOS-v#{version_number}-#{version_code}-#{options[:short_name]}",
+        target_commitish: current_commit_hash,
+        name: "iOS-v#{version_number}-#{version_code}-#{options[:short_name]}",
+        body: "Write here the content of release notes...",
+        draft: false,
+        prerelease: false
+      }.to_json,
+      api_token: ENV["GITHUB_API_TOKEN"]
+    )
+  end
+
+  desc "Push a new beta build to TestFlight"
+  lane :alpha do |options|
+    unless ["production", "development"].include?(options[:env])
+      UI.user_error!("Invalid env given, pass using `env: 'production'` or `env: 'development'`")
+    end
+
+    short_name = ""
+    long_name = ""
+
+    if(options[:env] == "production")
+      # 배포용
+      short_name = "prod"
+      long_name = "production"
+    else
+      # 개발용
+      short_name = "dev"
+      long_name = "development"
+    end
+
+    increment_build_number(
+      build_number: Time.now.strftime("%y%m%d.%H%M"),
+      xcodeproj: "Runner.xcodeproj",
+    )
+    sh "flutter pub get"
+    sh "bundle exec pod install"
+
+    update_project_team( # Set the right team on your project
+      teamid: CredentialsManager::AppfileConfig.try_fetch_value(:team_id)
+    )
+
+    #버젼 변경할 때마다 빌드해야하는 번거로움을 줄이기 위해서 코드 추가
+    sh "flutter build ios --release --no-codesign --no-tree-shake-icons --dart-define=ENV=#{long_name}"
+
+    build_app(
+      workspace: "Runner.xcworkspace",
+      scheme: "Runner",
+      clean: true,
+      export_method: "app-store"
+    )
+    upload_to_testflight(
+      skip_waiting_for_build_processing: true,
+    )
+    create_release_note(short_name: short_name)
+  end
+end

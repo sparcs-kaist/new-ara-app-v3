@@ -191,16 +191,27 @@ class _WebShellState extends State<_WebShell> {
     }
   }
 
-  /// Returns `true` when the host should actually exit. The first back
-  /// press at the bottom of the WebView history shows a toast; only the
-  /// second press within 2 seconds exits.
+  /// Returns `true` when the host should actually exit.
+  ///
+  /// KakaoTalk / Instagram pattern: hardware back navigates the WebView
+  /// history one step at a time *unless* the user is already on the
+  /// Main route — in which case the first press shows a toast and the
+  /// second press within 2 seconds exits. The URL check short-circuits
+  /// the SSO redirect chain that otherwise sits in WebView history
+  /// (sso_login → sparcs SSO → callback → auth-handler → Main) and
+  /// would force the user to back-traverse it before being able to exit.
   Future<bool> _onWillPop() async {
     final wv = _controller;
     if (wv == null) return true;
-    if (await wv.canGoBack()) {
+
+    final currentUrl = (await wv.getUrl())?.toString() ?? '';
+    final onMain = currentUrl.contains('/web_view/Main');
+
+    if (!onMain && await wv.canGoBack()) {
       await wv.goBack();
       return false;
     }
+
     final now = DateTime.now();
     if (_lastBackAt != null &&
         now.difference(_lastBackAt!) < const Duration(seconds: 2)) {

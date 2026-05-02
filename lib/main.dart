@@ -64,6 +64,10 @@ class _WebShellState extends State<_WebShell> {
   late final BridgeController _bridge;
   late final PullToRefreshController _pullToRefresh;
   bool _firstFrameDone = false;
+  // Timestamp of the last back-press that found no WebView history.
+  // Used so the second press within 2s actually exits — matching the
+  // Flutter Ara `MainNavigationTabPage` "한번 더 누르면 종료" pattern.
+  DateTime? _lastBackAt;
 
   @override
   void initState() {
@@ -176,6 +180,9 @@ class _WebShellState extends State<_WebShell> {
     }
   }
 
+  /// Returns `true` when the host should actually exit. The first back
+  /// press at the bottom of the WebView history shows a toast; only the
+  /// second press within 2 seconds exits.
   Future<bool> _onWillPop() async {
     final wv = _controller;
     if (wv == null) return true;
@@ -183,7 +190,23 @@ class _WebShellState extends State<_WebShell> {
       await wv.goBack();
       return false;
     }
-    return true;
+    final now = DateTime.now();
+    if (_lastBackAt != null &&
+        now.difference(_lastBackAt!) < const Duration(seconds: 2)) {
+      return true;
+    }
+    _lastBackAt = now;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger
+      ?..clearSnackBars()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('한 번 더 누르면 종료됩니다.'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    return false;
   }
 
   @override
@@ -199,7 +222,8 @@ class _WebShellState extends State<_WebShell> {
         if (didPop) return;
         final shouldExit = await _onWillPop();
         if (shouldExit && mounted) {
-          // Last screen in the stack: actually exit the app on Android.
+          // Bottom of history AND this is the second press within 2s:
+          // actually exit on Android. The toast was shown on press one.
           if (Platform.isAndroid) {
             await SystemNavigator.pop();
           }

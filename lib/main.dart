@@ -68,6 +68,12 @@ class _WebShellState extends State<_WebShell> {
   // Used so the second press within 2s actually exits — matching the
   // Flutter Ara `MainNavigationTabPage` "한번 더 누르면 종료" pattern.
   DateTime? _lastBackAt;
+  // Last URL the WebView is showing. Tracked via onUpdateVisitedHistory
+  // (and onLoadStop as a fallback) because `controller.getUrl()` lags
+  // behind `pushState`/`replaceState` on Android — Next.js navigation
+  // would land on /web_view/Main but getUrl() would still return
+  // /web_view/Login, so the Main exit-toast branch never fired.
+  String _currentUrl = '';
 
   @override
   void initState() {
@@ -185,10 +191,23 @@ class _WebShellState extends State<_WebShell> {
   }
 
   void _onLoadStop(InAppWebViewController controller, WebUri? url) {
+    if (url != null) _currentUrl = url.toString();
     if (!_firstFrameDone) {
       _firstFrameDone = true;
       FlutterNativeSplash.remove();
     }
+  }
+
+  /// Fires for *every* URL change including SPA `pushState` /
+  /// `replaceState` — the only signal Android's WebView gives us that
+  /// is in sync with Next.js navigation. `controller.getUrl()` alone
+  /// is not enough on Android.
+  void _onUpdateVisitedHistory(
+    InAppWebViewController controller,
+    WebUri? url,
+    bool? isReload,
+  ) {
+    if (url != null) _currentUrl = url.toString();
   }
 
   /// Returns `true` when the host should actually exit.
@@ -204,10 +223,15 @@ class _WebShellState extends State<_WebShell> {
     final wv = _controller;
     if (wv == null) return true;
 
-    final currentUrl = (await wv.getUrl())?.toString() ?? '';
-    final onMain = currentUrl.contains('/web_view/Main');
+    // Prefer the URL tracked via onUpdateVisitedHistory; fall back to a
+    // live `getUrl()` if for some reason the callback hasn't landed yet.
+    final live = (await wv.getUrl())?.toString() ?? '';
+    final url = _currentUrl.isNotEmpty ? _currentUrl : live;
+    final onMain = url.contains('/web_view/Main');
+    final canGoBack = await wv.canGoBack();
+    debugPrint('[back] url=$url onMain=$onMain canGoBack=$canGoBack');
 
-    if (!onMain && await wv.canGoBack()) {
+    if (!onMain && canGoBack) {
       await wv.goBack();
       return false;
     }
@@ -262,6 +286,7 @@ class _WebShellState extends State<_WebShell> {
           onWebViewCreated: _onWebViewCreated,
           shouldOverrideUrlLoading: _onShouldOverride,
           onLoadStop: _onLoadStop,
+          onUpdateVisitedHistory: _onUpdateVisitedHistory,
           onPermissionRequest: (controller, request) async {
             return PermissionResponse(
               resources: request.resources,

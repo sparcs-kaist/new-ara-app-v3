@@ -210,8 +210,10 @@ class BridgeController with WidgetsBindingObserver {
       case BridgeCommand.setBadgeCount:
         return null;
       case BridgeCommand.setSession:
+        // The web manages its own cookies via Set-Cookie; nothing to mirror.
+        return null;
       case BridgeCommand.clearSession:
-        // Cookies live in the WebView cookie jar; we don't mirror them yet.
+        await _clearWebSession();
         return null;
       case BridgeCommand.setStatusBar:
       case BridgeCommand.setSafeArea:
@@ -222,6 +224,38 @@ class BridgeController with WidgetsBindingObserver {
         return null;
       default:
         throw BridgeException(BridgeErrorCode.unsupported, 'unknown command: $type');
+    }
+  }
+
+  /// Wipes every cookie + storage scope a re-login could trip over.
+  ///
+  /// The WebView shell defers session ownership to the page (Django sets
+  /// the session cookie via Set-Cookie, the web reads it via
+  /// `credentials: 'include'`). When a session expires server-side and
+  /// the user retries SSO, the stale `sessionid` cookie that
+  /// `sharedCookiesEnabled` keeps on disk disagrees with the fresh
+  /// `state` parameter sso_login mints, and the next sso_login_callback
+  /// 401s. The original Flutter SparcsSSOPage avoided that by calling
+  /// `WebViewCookieManager().clearCookies()` in initState; we mirror it
+  /// here so the web can request a clean slate before redirecting to SSO.
+  Future<void> _clearWebSession() async {
+    try {
+      await CookieManager.instance().deleteAllCookies();
+    } catch (e) {
+      _logWarn('clearSession: deleteAllCookies failed: $e');
+    }
+    try {
+      // Wipes localStorage/sessionStorage/IndexedDB. The shared
+      // implementation is a no-op on iOS (WKWebView already drops them
+      // with the cookie store) and the real call on Android.
+      await WebStorageManager.instance().deleteAllData();
+    } catch (e) {
+      _logWarn('clearSession: deleteAllData failed: $e');
+    }
+    try {
+      await getWebView()?.clearCache();
+    } catch (e) {
+      _logWarn('clearSession: clearCache failed: $e');
     }
   }
 

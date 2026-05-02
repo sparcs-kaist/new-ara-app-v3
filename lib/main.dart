@@ -112,6 +112,17 @@ class _WebShellState extends State<_WebShell> {
         // Android keyboard handling: let the page's visualViewport drive layout.
         useHybridComposition: true,
         supportZoom: false,
+        // Kill the Android system WebView's overlay scrollbars — CSS
+        // `::-webkit-scrollbar { display: none }` on the page can't
+        // touch them because they're painted natively by the platform.
+        // Both flags must agree for the change to take effect (per the
+        // flutter_inappwebview docs). The native PullToRefreshController
+        // remains the only refresh affordance.
+        verticalScrollBarEnabled: false,
+        horizontalScrollBarEnabled: false,
+        // No bounce/glow on overscroll either; the page is supposed to
+        // feel native-app, not browser-with-rubber-banding.
+        overScrollMode: OverScrollMode.NEVER,
         // We control the user-agent so the web can detect "in app".
         applicationNameForUserAgent: 'AraNative/1.0',
         // iOS edge-swipe back gesture — Flutter's CupertinoPageRoute had

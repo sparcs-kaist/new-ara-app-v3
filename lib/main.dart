@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -64,21 +63,10 @@ class _WebShellState extends State<_WebShell> {
   late final BridgeController _bridge;
   late final PullToRefreshController _pullToRefresh;
   bool _firstFrameDone = false;
-  // Timestamp of the last back-press that found no WebView history.
-  // Used so the second press within 2s actually exits — matching the
-  // Flutter Ara `MainNavigationTabPage` "한번 더 누르면 종료" pattern.
-  DateTime? _lastBackAt;
-  // Last URL the WebView is showing. Tracked via onUpdateVisitedHistory
-  // (and onLoadStop as a fallback) because `controller.getUrl()` lags
-  // behind `pushState`/`replaceState` on Android — Next.js navigation
-  // would land on /web_view/Main but getUrl() would still return
-  // /web_view/Login, so the Main exit-toast branch never fired.
+  // Last URL the WebView is showing. Currently kept for diagnostics only
+  // — the back press is fully delegated to the web via `back:pressed`,
+  // so we no longer rely on URL pattern matching for the exit decision.
   String _currentUrl = '';
-  // Last URL onLoadStop reported. Used to detect the SSO chain ending
-  // (non-Main → Main) so we only clear WebView history on fresh login,
-  // not on every Main reload (which would also fire on cold-start cookie
-  // re-launch and apparently breaks the OS back dispatch on that path).
-  String? _previousLoadStopUrl;
 
   @override
   void initState() {
@@ -195,31 +183,8 @@ class _WebShellState extends State<_WebShell> {
     );
   }
 
-  void _onLoadStop(InAppWebViewController controller, WebUri? url) async {
-    if (url != null) {
-      final newUrl = url.toString();
-      // Only clear WebView history when we *transition* into Main from
-      // somewhere else — i.e. the SSO chain just finished. Cookie
-      // re-launch lands on Main as the very first onLoadStop (previous
-      // URL is null), and calling clearHistory there breaks the OS back
-      // dispatch on the cold-start path: the manifest's
-      // OnBackInvokedCallback fix gives us a working back press out of
-      // the gate, but resetting history while there's nothing to reset
-      // somehow lets the system shortcut to "exit activity" before
-      // PopScope intercepts. So keep the clear scoped to the case it's
-      // actually needed — fresh login with auth pages still in back/fwd.
-      final cameFromNonMain = _previousLoadStopUrl != null &&
-          !_previousLoadStopUrl!.contains('/web_view/Main');
-      _currentUrl = newUrl;
-      _previousLoadStopUrl = newUrl;
-      if (newUrl.contains('/web_view/Main') && cameFromNonMain) {
-        try {
-          await controller.clearHistory();
-        } catch (e) {
-          debugPrint('clearHistory failed: $e');
-        }
-      }
-    }
+  void _onLoadStop(InAppWebViewController controller, WebUri? url) {
+    if (url != null) _currentUrl = url.toString();
     if (!_firstFrameDone) {
       _firstFrameDone = true;
       FlutterNativeSplash.remove();
@@ -238,49 +203,18 @@ class _WebShellState extends State<_WebShell> {
     if (url != null) _currentUrl = url.toString();
   }
 
-  /// Returns `true` when the host should actually exit.
-  ///
-  /// KakaoTalk / Instagram pattern: hardware back navigates the WebView
-  /// history one step at a time *unless* the user is already on the
-  /// Main route — in which case the first press shows a toast and the
-  /// second press within 2 seconds exits. The URL check short-circuits
-  /// the SSO redirect chain that otherwise sits in WebView history
-  /// (sso_login → sparcs SSO → callback → auth-handler → Main) and
-  /// would force the user to back-traverse it before being able to exit.
-  Future<bool> _onWillPop() async {
-    final wv = _controller;
-    if (wv == null) return true;
-
-    // Prefer the URL tracked via onUpdateVisitedHistory; fall back to a
-    // live `getUrl()` if for some reason the callback hasn't landed yet.
-    final live = (await wv.getUrl())?.toString() ?? '';
-    final url = _currentUrl.isNotEmpty ? _currentUrl : live;
-    final onMain = url.contains('/web_view/Main');
-    final canGoBack = await wv.canGoBack();
-    debugPrint('[back] url=$url onMain=$onMain canGoBack=$canGoBack');
-
-    if (!onMain && canGoBack) {
-      await wv.goBack();
-      return false;
-    }
-
-    final now = DateTime.now();
-    if (_lastBackAt != null &&
-        now.difference(_lastBackAt!) < const Duration(seconds: 2)) {
-      return true;
-    }
-    _lastBackAt = now;
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    messenger
-      ?..clearSnackBars()
-      ..showSnackBar(
-        const SnackBar(
-          content: Text('한 번 더 누르면 종료됩니다.'),
-          duration: Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    return false;
+  /// Hardware back is fully owned by the web. The shell only forwards
+  /// the press as a `back:pressed` event and lets the layout listener
+  /// decide what to do (router.back / show "press again to exit" /
+  /// finally call `exit` via the bridge). Going through the web means
+  /// the routing decision is made against `pathname` + `window.history`,
+  /// which the SPA already maintains correctly — no more reasoning over
+  /// WebView's back/forward list, which races OnBackInvokedCallback on
+  /// cold-start cookie re-launch and stale-routes via SSO redirects on
+  /// fresh login.
+  void _onWillPop() {
+    if (_controller == null) return;
+    _bridge.emit(BridgeEvent.backPressed);
   }
 
   @override
@@ -292,16 +226,11 @@ class _WebShellState extends State<_WebShell> {
 
     return PopScope(
       canPop: false,
-      onPopInvokedWithResult: (didPop, _) async {
+      onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        final shouldExit = await _onWillPop();
-        if (shouldExit && mounted) {
-          // Bottom of history AND this is the second press within 2s:
-          // actually exit on Android. The toast was shown on press one.
-          if (Platform.isAndroid) {
-            await SystemNavigator.pop();
-          }
-        }
+        // Forward to the web. If the web wants to actually exit it will
+        // call back via the `exit` bridge command — never decide here.
+        _onWillPop();
       },
       child: Scaffold(
         backgroundColor: Colors.white,

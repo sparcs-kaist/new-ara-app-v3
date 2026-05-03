@@ -190,8 +190,27 @@ class _WebShellState extends State<_WebShell> {
     );
   }
 
-  void _onLoadStop(InAppWebViewController controller, WebUri? url) {
-    if (url != null) _currentUrl = url.toString();
+  void _onLoadStop(InAppWebViewController controller, WebUri? url) async {
+    if (url != null) {
+      _currentUrl = url.toString();
+      // Wipe the SSO redirect chain from WebView history the moment we
+      // land on Main via a real navigation. Without this, fresh-login
+      // arrives at Main with Login → sparcs SSO → callback → auth-handler
+      // still sitting in back/forward — `canGoBack=true` then races with
+      // Android 13+'s OnBackInvokedCallback so the activity finishes
+      // before `PopScope` can render the double-press toast. Cookie
+      // re-launch never built that chain, which is why only fresh login
+      // showed the single-press exit. SPA navigation (pushState) doesn't
+      // fire onLoadStop, so sub-page back navigation from Main is
+      // unaffected.
+      if (_currentUrl.contains('/web_view/Main')) {
+        try {
+          await controller.clearHistory();
+        } catch (e) {
+          debugPrint('clearHistory failed: $e');
+        }
+      }
+    }
     if (!_firstFrameDone) {
       _firstFrameDone = true;
       FlutterNativeSplash.remove();

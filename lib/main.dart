@@ -74,6 +74,11 @@ class _WebShellState extends State<_WebShell> {
   // would land on /web_view/Main but getUrl() would still return
   // /web_view/Login, so the Main exit-toast branch never fired.
   String _currentUrl = '';
+  // Last URL onLoadStop reported. Used to detect the SSO chain ending
+  // (non-Main → Main) so we only clear WebView history on fresh login,
+  // not on every Main reload (which would also fire on cold-start cookie
+  // re-launch and apparently breaks the OS back dispatch on that path).
+  String? _previousLoadStopUrl;
 
   @override
   void initState() {
@@ -192,18 +197,22 @@ class _WebShellState extends State<_WebShell> {
 
   void _onLoadStop(InAppWebViewController controller, WebUri? url) async {
     if (url != null) {
-      _currentUrl = url.toString();
-      // Wipe the SSO redirect chain from WebView history the moment we
-      // land on Main via a real navigation. Without this, fresh-login
-      // arrives at Main with Login → sparcs SSO → callback → auth-handler
-      // still sitting in back/forward — `canGoBack=true` then races with
-      // Android 13+'s OnBackInvokedCallback so the activity finishes
-      // before `PopScope` can render the double-press toast. Cookie
-      // re-launch never built that chain, which is why only fresh login
-      // showed the single-press exit. SPA navigation (pushState) doesn't
-      // fire onLoadStop, so sub-page back navigation from Main is
-      // unaffected.
-      if (_currentUrl.contains('/web_view/Main')) {
+      final newUrl = url.toString();
+      // Only clear WebView history when we *transition* into Main from
+      // somewhere else — i.e. the SSO chain just finished. Cookie
+      // re-launch lands on Main as the very first onLoadStop (previous
+      // URL is null), and calling clearHistory there breaks the OS back
+      // dispatch on the cold-start path: the manifest's
+      // OnBackInvokedCallback fix gives us a working back press out of
+      // the gate, but resetting history while there's nothing to reset
+      // somehow lets the system shortcut to "exit activity" before
+      // PopScope intercepts. So keep the clear scoped to the case it's
+      // actually needed — fresh login with auth pages still in back/fwd.
+      final cameFromNonMain = _previousLoadStopUrl != null &&
+          !_previousLoadStopUrl!.contains('/web_view/Main');
+      _currentUrl = newUrl;
+      _previousLoadStopUrl = newUrl;
+      if (newUrl.contains('/web_view/Main') && cameFromNonMain) {
         try {
           await controller.clearHistory();
         } catch (e) {

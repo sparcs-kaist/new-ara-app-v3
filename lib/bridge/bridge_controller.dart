@@ -141,9 +141,16 @@ class BridgeController with WidgetsBindingObserver {
         debugPrint('[web] ${p['level']}: ${p['message']}');
         return null;
       case BridgeCommand.goBack:
-      case BridgeCommand.exit:
-        // The shell owns the back stack; we let the web drive history.
+        // Web asked us to step back through WebView history (e.g. an
+        // in-page chevron button). Falls through to a native exit when
+        // the WebView is at the bottom of its stack.
         await _maybePopOrExit();
+        return null;
+      case BridgeCommand.exit:
+        // Web has decided to actually quit the app — no goBack fallback,
+        // no canGoBack check. The web's `back:pressed` handler reaches
+        // here only after the user double-tapped past the exit toast.
+        await SystemNavigator.pop();
         return null;
       case BridgeCommand.openExternal:
         final url = (payload as Map?)?['url'] as String?;

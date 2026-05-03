@@ -63,10 +63,21 @@ class _WebShellState extends State<_WebShell> {
   late final BridgeController _bridge;
   late final PullToRefreshController _pullToRefresh;
   bool _firstFrameDone = false;
-  // Last URL the WebView is showing. Currently kept for diagnostics only
-  // — the back press is fully delegated to the web via `back:pressed`,
-  // so we no longer rely on URL pattern matching for the exit decision.
+  // Last URL the WebView is showing. Updated from onLoadStop *and*
+  // onUpdateVisitedHistory so SPA pushState/replaceState navigations
+  // (which never fire onLoadStop on Android) still update it.
   String _currentUrl = '';
+  // Timestamp of the previous hardware back press while on Main, used
+  // for the double-press exit toast.
+  DateTime? _lastBackAt;
+
+  // Method channel mirroring `MainActivity.kt`'s `BACK_CHANNEL`. The
+  // Activity registers an OnBackInvokedCallback (and overrides the
+  // legacy onBackPressed for API < 33) and forwards every press here,
+  // which is the only reliable way to intercept on Android 13+ —
+  // PopScope+canPop raced the system OnBackInvokedDispatcher and let
+  // the activity finish before Dart could react.
+  static const _backChannel = MethodChannel('ara/back');
 
   @override
   void initState() {
@@ -86,12 +97,61 @@ class _WebShellState extends State<_WebShell> {
       getWebView: () => _controller,
       getPullToRefresh: () => _pullToRefresh,
     )..start();
+    _backChannel.setMethodCallHandler(_onBackChannelCall);
   }
 
   @override
   void dispose() {
+    _backChannel.setMethodCallHandler(null);
     _bridge.dispose();
     super.dispose();
+  }
+
+  Future<void> _onBackChannelCall(MethodCall call) async {
+    if (call.method == 'pressed') {
+      await _handleHardwareBack();
+    }
+  }
+
+  /// Authoritative hardware-back handler. Decides between popping the
+  /// WebView, showing the double-press exit toast on Main, or finishing
+  /// the activity, all from a single switch on the current SPA URL.
+  Future<void> _handleHardwareBack() async {
+    final wv = _controller;
+    if (wv == null) {
+      await SystemNavigator.pop();
+      return;
+    }
+
+    final url = _currentUrl;
+    final onMain = url.contains('/web_view/Main');
+
+    if (onMain) {
+      final now = DateTime.now();
+      if (_lastBackAt != null &&
+          now.difference(_lastBackAt!) < const Duration(seconds: 2)) {
+        await SystemNavigator.pop();
+        return;
+      }
+      _lastBackAt = now;
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      messenger
+        ?..clearSnackBars()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('한 번 더 누르면 종료됩니다.'),
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      return;
+    }
+
+    if (await wv.canGoBack()) {
+      await wv.goBack();
+      return;
+    }
+    await SystemNavigator.pop();
   }
 
   Uri get _entryUri => Uri.parse('$newAraDefaultUrl/web_view/Main');
@@ -203,20 +263,6 @@ class _WebShellState extends State<_WebShell> {
     if (url != null) _currentUrl = url.toString();
   }
 
-  /// Hardware back is fully owned by the web. The shell only forwards
-  /// the press as a `back:pressed` event and lets the layout listener
-  /// decide what to do (router.back / show "press again to exit" /
-  /// finally call `exit` via the bridge). Going through the web means
-  /// the routing decision is made against `pathname` + `window.history`,
-  /// which the SPA already maintains correctly — no more reasoning over
-  /// WebView's back/forward list, which races OnBackInvokedCallback on
-  /// cold-start cookie re-launch and stale-routes via SSO redirects on
-  /// fresh login.
-  void _onWillPop() {
-    if (_controller == null) return;
-    _bridge.emit(BridgeEvent.backPressed);
-  }
-
   @override
   Widget build(BuildContext context) {
     SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle.dark.copyWith(
@@ -224,36 +270,31 @@ class _WebShellState extends State<_WebShell> {
       statusBarIconBrightness: Brightness.dark,
     ));
 
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
-        // Forward to the web. If the web wants to actually exit it will
-        // call back via the `exit` bridge command — never decide here.
-        _onWillPop();
-      },
-      child: Scaffold(
-        backgroundColor: Colors.white,
-        // We let the WebView fill the whole screen; the web layout reads
-        // safe-area insets via the bridge handshake and applies them itself.
-        body: InAppWebView(
-          initialUrlRequest: URLRequest(url: WebUri.uri(_entryUri)),
-          initialSettings: _settings,
-          pullToRefreshController: _pullToRefresh,
-          onWebViewCreated: _onWebViewCreated,
-          shouldOverrideUrlLoading: _onShouldOverride,
-          onLoadStop: _onLoadStop,
-          onUpdateVisitedHistory: _onUpdateVisitedHistory,
-          onPermissionRequest: (controller, request) async {
-            return PermissionResponse(
-              resources: request.resources,
-              action: PermissionResponseAction.GRANT,
-            );
-          },
-          onConsoleMessage: (controller, msg) {
-            debugPrint('[webview] ${msg.messageLevel}: ${msg.message}');
-          },
-        ),
+    // No PopScope: hardware back is intercepted in MainActivity.kt and
+    // dispatched here via the `ara/back` method channel. PopScope+canPop
+    // was unreliable on Android 13+ predictive back — the system would
+    // sometimes finish the activity before the Dart handler ran.
+    return Scaffold(
+      backgroundColor: Colors.white,
+      // We let the WebView fill the whole screen; the web layout reads
+      // safe-area insets via the bridge handshake and applies them itself.
+      body: InAppWebView(
+        initialUrlRequest: URLRequest(url: WebUri.uri(_entryUri)),
+        initialSettings: _settings,
+        pullToRefreshController: _pullToRefresh,
+        onWebViewCreated: _onWebViewCreated,
+        shouldOverrideUrlLoading: _onShouldOverride,
+        onLoadStop: _onLoadStop,
+        onUpdateVisitedHistory: _onUpdateVisitedHistory,
+        onPermissionRequest: (controller, request) async {
+          return PermissionResponse(
+            resources: request.resources,
+            action: PermissionResponseAction.GRANT,
+          );
+        },
+        onConsoleMessage: (controller, msg) {
+          debugPrint('[webview] ${msg.messageLevel}: ${msg.message}');
+        },
       ),
     );
   }

@@ -27,7 +27,6 @@ class BridgeCommand {
   static const setStatusBar = 'setStatusBar';
   static const setSafeArea = 'setSafeArea';
   static const openExternal = 'openExternal';
-  static const canOpen = 'canOpen';
   static const share = 'share';
   static const pickImage = 'pickImage';
   static const pickFile = 'pickFile';

@@ -175,20 +175,19 @@ class BridgeController with WidgetsBindingObserver {
         if (url == null) {
           throw BridgeException(BridgeErrorCode.invalidPayload, 'url required');
         }
-        final ok = await launchUrl(
-          Uri.parse(url),
-          mode: LaunchMode.externalApplication,
-        );
+        bool ok;
+        try {
+          ok = await launchUrl(
+            Uri.parse(url),
+            mode: LaunchMode.externalApplication,
+          );
+        } on PlatformException {
+          ok = false;
+        }
         if (!ok) {
           throw BridgeException(BridgeErrorCode.unavailable, 'cannot open url');
         }
         return null;
-      case BridgeCommand.canOpen:
-        final url = Uri.tryParse((payload as Map?)?['url'] as String? ?? '');
-        if (url == null || !url.hasScheme) {
-          throw BridgeException(BridgeErrorCode.invalidPayload, 'url required');
-        }
-        return {'canOpen': await canLaunchUrl(url)};
       case BridgeCommand.haptic:
         final kind = (payload as Map?)?['kind'] as String?;
         switch (kind) {

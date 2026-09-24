@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,6 +14,8 @@ import 'package:new_ara_app/bridge/bridge_controller.dart';
 import 'package:new_ara_app/bridge/bridge_protocol.dart';
 import 'package:new_ara_app/constants/url_info.dart';
 
+bool _firebaseReady = false;
+
 /// Entry point for the WebView-shell build of Ara.
 ///
 /// The native side is intentionally tiny: load a single InAppWebView pointing
@@ -21,6 +25,13 @@ import 'package:new_ara_app/constants/url_info.dart';
 void main() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
+
+  try {
+    await Firebase.initializeApp();
+    _firebaseReady = true;
+  } catch (e) {
+    debugPrint('[push] firebase init failed: $e');
+  }
 
   const String environment =
       String.fromEnvironment('ENV', defaultValue: 'development');
@@ -88,7 +99,31 @@ class _WebShellState extends State<_WebShell> {
     _bridge = BridgeController(
       getWebView: () => _controller,
       getPullToRefresh: () => _pullToRefresh,
+      pushEnabled: _firebaseReady,
     )..start();
+    const MethodChannel('ara/keyboard').setMethodCallHandler((call) async {
+      if (call.method == 'changed') {
+        await _bridge.emit(BridgeEvent.keyboardChanged,
+            Map<String, dynamic>.from(call.arguments as Map));
+      }
+    });
+    if (_firebaseReady) _listenPush();
+  }
+
+  // Foreground pushes are not shown natively; the web renders them from push:received.
+  void _listenPush() {
+    FirebaseMessaging.onMessage.listen((m) => _bridge.emit(BridgeEvent.pushReceived, {
+          'title': m.notification?.title,
+          'body': m.notification?.body,
+          'data': m.data,
+          'foreground': true,
+        }));
+    FirebaseMessaging.onMessageOpenedApp.listen((m) => _bridge.openPush(m.data));
+    FirebaseMessaging.instance.getInitialMessage().then((m) {
+      if (m != null) _bridge.openPush(m.data);
+    });
+    FirebaseMessaging.instance.onTokenRefresh.listen(
+        (t) => _bridge.emit(BridgeEvent.pushToken, {'token': t, 'platform': 'fcm'}));
   }
 
   @override

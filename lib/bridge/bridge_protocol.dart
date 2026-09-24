@@ -31,6 +31,8 @@ class BridgeCommand {
   static const pickImage = 'pickImage';
   static const pickFile = 'pickFile';
   static const requestPermission = 'requestPermission';
+  static const getPermissionStatus = 'getPermissionStatus';
+  static const openAppSettings = 'openAppSettings';
   static const getPushToken = 'getPushToken';
   static const subscribeTopic = 'subscribeTopic';
   static const unsubscribeTopic = 'unsubscribeTopic';
@@ -56,6 +58,7 @@ class BridgeEvent {
   static const keyboardChanged = 'keyboard:changed';
   static const pushReceived = 'push:received';
   static const pushOpened = 'push:opened';
+  static const pushToken = 'push:token';
   static const deeplinkReceived = 'deeplink:received';
   static const authExpired = 'auth:expired';
   /// User pulled the WebView down past the threshold; web should refetch.

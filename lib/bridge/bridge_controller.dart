@@ -3,11 +3,13 @@ import 'dart:convert';
 import 'dart:io' show Platform;
 import 'dart:ui' show PlatformDispatcher;
 
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'bridge_protocol.dart';
@@ -19,7 +21,11 @@ import 'bridge_protocol.dart';
 /// (if the message had an `id`) post a `:result` / `:error` envelope back
 /// using `evaluateJavascript`.
 class BridgeController with WidgetsBindingObserver {
-  BridgeController({required this.getWebView, this.getPullToRefresh});
+  BridgeController({
+    required this.getWebView,
+    this.getPullToRefresh,
+    this.pushEnabled = false,
+  });
 
   /// Lazily resolves the current InAppWebViewController. We don't hold a
   /// strong ref because the controller can change across hot reloads.
@@ -30,7 +36,12 @@ class BridgeController with WidgetsBindingObserver {
   /// `endRefreshing()` and dismiss the native spinner.
   final PullToRefreshController? Function()? getPullToRefresh;
 
+  /// Whether Firebase initialized (iOS has no Firebase config yet).
+  final bool pushEnabled;
+
   bool _started = false;
+  bool _webReady = false;
+  Map<String, dynamic>? _pendingPush;
 
   /// Last `back:pressed` id the web acknowledged via `back:handled`.
   int? lastHandledBackId;
@@ -138,6 +149,10 @@ class BridgeController with WidgetsBindingObserver {
     switch (type) {
       case BridgeCommand.ready:
         await _emitReady(route: (payload as Map?)?['route'] as String?);
+        _webReady = true;
+        final pending = _pendingPush;
+        _pendingPush = null;
+        if (pending != null) await emit(BridgeEvent.pushOpened, {'data': pending});
         return null;
       case BridgeCommand.log:
         final p = (payload as Map?) ?? const {};
@@ -160,10 +175,15 @@ class BridgeController with WidgetsBindingObserver {
         if (url == null) {
           throw BridgeException(BridgeErrorCode.invalidPayload, 'url required');
         }
-        final ok = await launchUrl(
-          Uri.parse(url),
-          mode: LaunchMode.externalApplication,
-        );
+        bool ok;
+        try {
+          ok = await launchUrl(
+            Uri.parse(url),
+            mode: LaunchMode.externalApplication,
+          );
+        } on PlatformException {
+          ok = false;
+        }
         if (!ok) {
           throw BridgeException(BridgeErrorCode.unavailable, 'cannot open url');
         }
@@ -204,19 +224,35 @@ class BridgeController with WidgetsBindingObserver {
         // picker delegation can be added later without changing the protocol.
         throw BridgeException(BridgeErrorCode.unsupported, 'use HTML <input type="file">');
       case BridgeCommand.requestPermission:
-        // Camera / photos prompts are triggered by the OS when the WebView
-        // file picker is invoked. Notifications permission requires the
-        // push integration to be active; respond as denied/unsupported.
-        return {
-          'granted': false,
-          'status': 'denied',
-        };
+        return _permissionResult(await _permission(payload).request());
+      case BridgeCommand.getPermissionStatus:
+        return _permissionResult(await _permission(payload).status);
+      case BridgeCommand.openAppSettings:
+        return {'opened': await openAppSettings()};
       case BridgeCommand.getPushToken:
-        // Stubbed until firebase_messaging is set up. Web should treat a null
-        // token as "push not available yet".
-        return {'token': null, 'platform': Platform.isIOS ? 'apns' : 'fcm'};
+        try {
+          final token = await FirebaseMessaging.instance.getToken();
+          return {'token': token, 'platform': 'fcm'};
+        } catch (e) {
+          // iOS throws until the APNs token exists; the web retries on push:token.
+          _logWarn('getPushToken failed: $e');
+          return {'token': null, 'platform': 'fcm'};
+        }
       case BridgeCommand.subscribeTopic:
       case BridgeCommand.unsubscribeTopic:
+        final topic = (payload as Map?)?['topic'] as String?;
+        if (topic == null) {
+          throw BridgeException(BridgeErrorCode.invalidPayload, 'topic required');
+        }
+        if (!pushEnabled) {
+          throw BridgeException(BridgeErrorCode.unavailable, 'push unavailable');
+        }
+        if (type == BridgeCommand.subscribeTopic) {
+          await FirebaseMessaging.instance.subscribeToTopic(topic);
+        } else {
+          await FirebaseMessaging.instance.unsubscribeFromTopic(topic);
+        }
+        return null;
       case BridgeCommand.setBadgeCount:
         return null;
       case BridgeCommand.setSession:
@@ -239,6 +275,19 @@ class BridgeController with WidgetsBindingObserver {
         throw BridgeException(BridgeErrorCode.unsupported, 'unknown command: $type');
     }
   }
+
+  Permission _permission(dynamic payload) {
+    var kind = (payload as Map?)?['kind'] as String?;
+    if (kind == 'notifications') kind = 'notification';
+    return Permission.values.firstWhere(
+      (p) => p.toString() == 'Permission.$kind',
+      orElse: () => throw BridgeException(
+          BridgeErrorCode.invalidPayload, 'unknown permission kind: $kind'),
+    );
+  }
+
+  Map<String, dynamic> _permissionResult(PermissionStatus status) =>
+      {'granted': status.isGranted, 'status': status.name};
 
   /// Wipes every cookie + storage scope a re-login could trip over.
   ///
@@ -285,6 +334,15 @@ class BridgeController with WidgetsBindingObserver {
   // ---------------------------------------------------------------------------
   // Native → Web
   // ---------------------------------------------------------------------------
+
+  /// A tapped notification; held until the page has sent `ready`.
+  Future<void> openPush(Map<String, dynamic> data) async {
+    if (!_webReady) {
+      _pendingPush = data;
+      return;
+    }
+    await emit(BridgeEvent.pushOpened, {'data': data});
+  }
 
   Future<void> emit(String type, [Map<String, dynamic>? payload]) async {
     await _postBack(<String, dynamic>{

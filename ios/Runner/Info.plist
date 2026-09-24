@@ -34,7 +34,7 @@
 		<true/>
 		<key>LSSupportsOpeningDocumentsInPlace</key>
 		<true/>
-		<key>NNSCameraUsageDescription</key>
+		<key>NSCameraUsageDescription</key>
 		<string>This is used for uploading a photo to a post and changing your profile picture</string>
 		<key>NSMicrophoneUsageDescription</key>
 		<string>This is used for recording and uploading your voice to a post</string>
@@ -42,6 +42,10 @@
 		<string>This is used for uploading a photo to a post and changing your profile picture</string>
 		<key>UIApplicationSupportsIndirectInputEvents</key>
 		<true/>
+		<key>UIBackgroundModes</key>
+		<array>
+			<string>remote-notification</string>
+		</array>
 		<key>UIFileSharingEnabled</key>
 		<true/>
 		<key>UILaunchStoryboardName</key>

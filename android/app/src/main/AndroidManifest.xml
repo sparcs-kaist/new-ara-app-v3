@@ -8,6 +8,58 @@
        <intent>
            <action android:name="android.media.action.IMAGE_CAPTURE" />
        </intent>
+       <intent>
+           <action android:name="android.intent.action.VIEW" />
+           <data android:scheme="supertoss" />
+       </intent>
+       <intent>
+           <action android:name="android.intent.action.VIEW" />
+           <data android:scheme="kakaotalk" />
+       </intent>
+       <intent>
+           <action android:name="android.intent.action.VIEW" />
+           <data android:scheme="kakaobank" />
+       </intent>
+       <intent>
+           <action android:name="android.intent.action.VIEW" />
+           <data android:scheme="kbbank" />
+       </intent>
+       <intent>
+           <action android:name="android.intent.action.VIEW" />
+           <data android:scheme="newsmartpib" />
+       </intent>
+       <intent>
+           <action android:name="android.intent.action.VIEW" />
+           <data android:scheme="shinhan-sr-ssb" />
+       </intent>
+       <intent>
+           <action android:name="android.intent.action.VIEW" />
+           <data android:scheme="nhsmartbanking" />
+       </intent>
+       <intent>
+           <action android:name="android.intent.action.VIEW" />
+           <data android:scheme="tel" />
+       </intent>
+       <intent>
+           <action android:name="android.intent.action.VIEW" />
+           <data android:scheme="mailto" />
+       </intent>
+       <intent>
+           <action android:name="android.intent.action.VIEW" />
+           <data android:scheme="sms" />
+       </intent>
+       <intent>
+           <action android:name="android.intent.action.VIEW" />
+           <data android:scheme="geo" />
+       </intent>
+       <intent>
+           <action android:name="android.intent.action.VIEW" />
+           <data android:scheme="market" />
+       </intent>
+       <intent>
+           <action android:name="android.intent.action.VIEW" />
+           <data android:scheme="content" />
+       </intent>
    </queries>
    <application
         android:label="Ara"
@@ -49,6 +101,15 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="ara_default" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/ara_red" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.flutter_inappwebview_android.fileprovider"
@@ -60,5 +121,6 @@
         </provider>
     </application>
     <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
 </manifest>

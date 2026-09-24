@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "587335775349",
+    "project_id": "newara-prod-87ce9",
+    "storage_bucket": "newara-prod-87ce9.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:587335775349:android:cad15649da77f9c74ab43c",
+        "android_client_info": {
+          "package_name": "org.sparcs.newara"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDgyFSJyigOF_H6dP5uT3q5fT0ZSOK27-k"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

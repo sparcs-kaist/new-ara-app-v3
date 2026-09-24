@@ -29,6 +29,20 @@
 		<key>LSApplicationQueriesSchemes</key>
 		<array>
 			<string>https</string>
+			<string>supertoss</string>
+			<string>kakaotalk</string>
+			<string>kakaobank</string>
+			<string>kbbank</string>
+			<string>newsmartpib</string>
+			<string>shinhan-sr-ssb</string>
+			<string>nhsmartbanking</string>
+			<string>tel</string>
+			<string>mailto</string>
+			<string>sms</string>
+			<string>geo</string>
+			<string>market</string>
+			<string>content</string>
+			<string>calshow</string>
 		</array>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
@@ -42,6 +56,10 @@
 		<string>This is used for uploading a photo to a post and changing your profile picture</string>
 		<key>UIApplicationSupportsIndirectInputEvents</key>
 		<true/>
+		<key>UIBackgroundModes</key>
+		<array>
+			<string>remote-notification</string>
+		</array>
 		<key>UIFileSharingEnabled</key>
 		<true/>
 		<key>UILaunchStoryboardName</key>

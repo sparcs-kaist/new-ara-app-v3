@@ -15,6 +15,9 @@ dependencies:
   # WebView shell + bridge stack
   flutter_inappwebview: ^6.0.0
   package_info_plus: ^8.0.0
+  firebase_core: ^3.15.2
+  firebase_messaging: ^15.2.10
+  permission_handler: ^12.0.3
 dev_dependencies:
   flutter_test:
     sdk: flutter

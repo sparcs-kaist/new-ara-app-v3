@@ -1,5 +1,7 @@
 package com.example.new_ara_app
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.os.Build
 import android.view.WindowInsets
 import android.view.WindowInsetsAnimation
@@ -21,6 +23,11 @@ class MainActivity: FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        if (Build.VERSION.SDK_INT >= 26) {
+            getSystemService(NotificationManager::class.java).createNotificationChannel(
+                NotificationChannel("ara_default", "알림", NotificationManager.IMPORTANCE_HIGH)
+            )
+        }
         if (Build.VERSION.SDK_INT < 30) return
         val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ara/keyboard")
         val density = resources.displayMetrics.density

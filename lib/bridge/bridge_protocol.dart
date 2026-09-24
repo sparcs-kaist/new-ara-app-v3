@@ -43,6 +43,8 @@ class BridgeCommand {
   static const reportHeight = 'reportHeight';
   /// Web tells the native shell that the pull-to-refresh refetch is finished.
   static const refreshDone = 'refreshDone';
+  /// Web acknowledges a `back:pressed` {id} it will handle.
+  static const backHandled = 'back:handled';
 }
 
 /// Native → Web event types.

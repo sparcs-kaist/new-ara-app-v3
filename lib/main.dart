@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -14,9 +15,9 @@ import 'package:new_ara_app/constants/url_info.dart';
 /// Entry point for the WebView-shell build of Ara.
 ///
 /// The native side is intentionally tiny: load a single InAppWebView pointing
-/// at `$newAraDefaultUrl/web_view/Main`, register the `FlutterChannel`
-/// handler, and forward lifecycle/back events through the bridge. Everything
-/// else lives in the Next.js app.
+/// at `$newAraDefaultUrl/web_view/Main`, add a web message listener that
+/// defines `window.FlutterChannel.postMessage`, and forward lifecycle/back
+/// events through the bridge. Everything else lives in the Next.js app.
 void main() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
@@ -67,6 +68,8 @@ class _WebShellState extends State<_WebShell> {
   // — the back press is fully delegated to the web via `back:pressed`,
   // so we no longer rely on URL pattern matching for the exit decision.
   String _currentUrl = '';
+  int _backSeq = 0;
+  DateTime? _exitPromptAt;
 
   @override
   void initState() {
@@ -173,14 +176,26 @@ class _WebShellState extends State<_WebShell> {
     }
   }
 
-  void _onWebViewCreated(InAppWebViewController controller) {
+  Future<void> _onWebViewCreated(InAppWebViewController controller) async {
     _controller = controller;
+    if (defaultTargetPlatform != TargetPlatform.android ||
+        await WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+      await controller.addWebMessageListener(WebMessageListener(
+        jsObjectName: kJsHandlerName,
+        allowedOriginRules: {'*'},
+        onPostMessage: (message, origin, isMainFrame, replyProxy) {
+          _bridge.handleMessage([message?.data]);
+        },
+      ));
+    }
+    // Older WebViews without WEB_MESSAGE_LISTENER: the web falls back to callHandler.
     controller.addJavaScriptHandler(
       handlerName: kJsHandlerName,
       callback: (args) async {
         await _bridge.handleMessage(args);
       },
     );
+    await controller.loadUrl(urlRequest: URLRequest(url: WebUri.uri(_entryUri)));
   }
 
   void _onLoadStop(InAppWebViewController controller, WebUri? url) {
@@ -203,18 +218,43 @@ class _WebShellState extends State<_WebShell> {
     if (url != null) _currentUrl = url.toString();
   }
 
-  /// Hardware back is fully owned by the web. The shell only forwards
-  /// the press as a `back:pressed` event and lets the layout listener
-  /// decide what to do (router.back / show "press again to exit" /
-  /// finally call `exit` via the bridge). Going through the web means
-  /// the routing decision is made against `pathname` + `window.history`,
-  /// which the SPA already maintains correctly — no more reasoning over
-  /// WebView's back/forward list, which races OnBackInvokedCallback on
-  /// cold-start cookie re-launch and stale-routes via SSO redirects on
-  /// fresh login.
+  /// Hardware back: the web decides normally (it acks `back:pressed` with
+  /// `back:handled`). Without that ack within 300ms the shell falls back to
+  /// WebView goBack / double-press-to-exit, so an unreachable page (offline,
+  /// SSO, hydrating, JS error) can never trap the user.
   void _onWillPop() {
-    if (_controller == null) return;
-    _bridge.emit(BridgeEvent.backPressed);
+    final id = ++_backSeq;
+    _bridge.emit(BridgeEvent.backPressed,
+        {'id': id, 'ts': DateTime.now().millisecondsSinceEpoch});
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (!mounted || (_bridge.lastHandledBackId ?? 0) >= id) return;
+      _handleBackNatively(id);
+    });
+  }
+
+  Future<void> _handleBackNatively(int id) async {
+    final wv = _controller;
+    final canGoBack = wv != null && await wv.canGoBack();
+    debugPrint('[back] web did not handle #$id -> ${canGoBack ? 'goBack' : 'exit prompt'}');
+    if (canGoBack) {
+      await wv.goBack();
+      return;
+    }
+    final now = DateTime.now();
+    if (_exitPromptAt != null &&
+        now.difference(_exitPromptAt!) < const Duration(seconds: 2)) {
+      await SystemNavigator.pop();
+      return;
+    }
+    _exitPromptAt = now;
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(const SnackBar(
+        content: Text('한 번 더 누르면 종료됩니다.'),
+        duration: Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ));
   }
 
   @override
@@ -237,7 +277,6 @@ class _WebShellState extends State<_WebShell> {
         // We let the WebView fill the whole screen; the web layout reads
         // safe-area insets via the bridge handshake and applies them itself.
         body: InAppWebView(
-          initialUrlRequest: URLRequest(url: WebUri.uri(_entryUri)),
           initialSettings: _settings,
           pullToRefreshController: _pullToRefresh,
           onWebViewCreated: _onWebViewCreated,

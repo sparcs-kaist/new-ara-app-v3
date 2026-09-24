@@ -89,6 +89,12 @@ class _WebShellState extends State<_WebShell> {
       getWebView: () => _controller,
       getPullToRefresh: () => _pullToRefresh,
     )..start();
+    const MethodChannel('ara/keyboard').setMethodCallHandler((call) async {
+      if (call.method == 'changed') {
+        await _bridge.emit(BridgeEvent.keyboardChanged,
+            Map<String, dynamic>.from(call.arguments as Map));
+      }
+    });
   }
 
   @override

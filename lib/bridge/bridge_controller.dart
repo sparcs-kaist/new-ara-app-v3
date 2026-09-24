@@ -14,7 +14,7 @@ import 'bridge_protocol.dart';
 
 /// Owns the WebView ↔ native message channel.
 ///
-/// Each `InAppWebView` registers `FlutterChannel` and forwards `postMessage`
+/// The shell's `FlutterChannel` web message listener forwards `postMessage`
 /// payloads here via [handleMessage]. We dispatch to the right handler and
 /// (if the message had an `id`) post a `:result` / `:error` envelope back
 /// using `evaluateJavascript`.
@@ -31,6 +31,9 @@ class BridgeController with WidgetsBindingObserver {
   final PullToRefreshController? Function()? getPullToRefresh;
 
   bool _started = false;
+
+  /// Last `back:pressed` id the web acknowledged via `back:handled`.
+  int? lastHandledBackId;
 
   void start() {
     if (_started) return;
@@ -228,6 +231,9 @@ class BridgeController with WidgetsBindingObserver {
         return null;
       case BridgeCommand.refreshDone:
         getPullToRefresh?.call()?.endRefreshing();
+        return null;
+      case BridgeCommand.backHandled:
+        lastHandledBackId = ((payload as Map?)?['id'] as num?)?.toInt();
         return null;
       default:
         throw BridgeException(BridgeErrorCode.unsupported, 'unknown command: $type');

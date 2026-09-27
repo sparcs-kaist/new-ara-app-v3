@@ -61,3 +61,5 @@ ios/Runner.ipa
 
 # FVM Version Cache
 .fvm/
+# Local signing credentials and Fastlane bundle
+/app/

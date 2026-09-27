@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'firebase_options.dart';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -27,7 +28,9 @@ void main() async {
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
   try {
-    await Firebase.initializeApp();
+    await Firebase.initializeApp(
+	options: DefaultFirebaseOptions.currentPlatform, 
+    );
     _firebaseReady = true;
   } catch (e) {
     debugPrint('[push] firebase init failed: $e');
@@ -112,19 +115,64 @@ class _WebShellState extends State<_WebShell> {
 
   // Foreground pushes are not shown natively; the web renders them from push:received.
   void _listenPush() {
-    FirebaseMessaging.onMessage.listen((m) => _bridge.emit(BridgeEvent.pushReceived, {
+    debugPrint('[push] _listenPush called');
+
+    FirebaseMessaging.onMessage.listen((m) {
+      debugPrint(
+	'[push] ON_MESSAGE: ${m.messageId} / ${m.notification?.title}',
+      );
+
+      _bridge.emit(BridgeEvent.pushReceived, {
           'title': m.notification?.title,
           'body': m.notification?.body,
           'data': m.data,
           'foreground': true,
-        }));
+        });
+    });
     FirebaseMessaging.onMessageOpenedApp.listen((m) => _bridge.openPush(m.data));
     FirebaseMessaging.instance.getInitialMessage().then((m) {
       if (m != null) _bridge.openPush(m.data);
     });
     FirebaseMessaging.instance.onTokenRefresh.listen(
         (t) => _bridge.emit(BridgeEvent.pushToken, {'token': t, 'platform': 'fcm'}));
+  
+    unawaited(_registerInitialFcmToken());
+   }
+  Future<void> _registerInitialFcmToken() async {
+  final messaging = FirebaseMessaging.instance;
+
+  try {
+    final settings = await messaging.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+    debugPrint('[push] permission: ${settings.authorizationStatus}');
+
+    String? apnsToken;
+    for (var i = 0; i < 10; i++) {
+      apnsToken = await messaging.getAPNSToken();
+      if (apnsToken != null) break;
+      await Future.delayed(const Duration(seconds: 1));
+    }
+
+    debugPrint('[push] APNs token received: ${apnsToken != null}');
+    if (apnsToken == null) return;
+    debugPrint('[push] APNs token: $apnsToken');
+
+    final fcmToken = await messaging.getToken();
+    debugPrint('[push] FCM token: $fcmToken');
+
+    if (fcmToken != null) {
+      await _bridge.emit(
+        BridgeEvent.pushToken,
+        {'token': fcmToken, 'platform': 'fcm'},
+      );
+    }
+  } catch (e) {
+    debugPrint('[push] token registration failed: $e');
   }
+}
 
   @override
   void dispose() {
